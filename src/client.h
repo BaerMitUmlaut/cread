@@ -1,0 +1,1 @@
+int clientMode(const char* ip, const char* size, const char* file);
