@@ -1,17 +1,18 @@
 CC      = gcc
-CFLAGS  = -Wall -std=c11 -O3 -pedantic
+CFLAGS  = -Wall -std=c11 -O3 -pedantic -pthread
 CLIBS   = -lm
-BINS    = bin/cread
+BIN     = bin/cread
 
 .SECONDEXPANSION:
 .PHONY: all clean test
 .SILENT:
 
 
-all: $(BINS)
+all: $(BIN)
 
-bin/cread: $$(subst .c,.o,$$(wildcard src/*.[ch]))
+$(BIN): $$(subst .c,.o,$$(wildcard src/*.[ch]))
 	echo "Linking $(@F)"
+	mkdir -p bin
 	$(CC) $(CFLAGS) $(CLIBS) -o $@ $^
 
 %.o: %.c
