@@ -7,7 +7,10 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <pthread.h>
 #include "request.h"
+
+void* handleClient(void *client);
 
 int serverMode() {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -29,26 +32,62 @@ int serverMode() {
     while (1) {
         /* accept incoming connection */
         int clientSocket = accept(sock, (struct sockaddr *) &client, &len);
-        char buf[1024];
-        recv(clientSocket, &buf, sizeof(buf), 0);
 
-        /* read request */
-        struct request req = { .length = 0, .file = NULL };
-        buftoreq(&buf, &req, sizeof(buf));
-        char ip[16];
-        inet_ntop(AF_INET, &client.sin_addr.s_addr, ip, 16);
-        printf("%s requested %u bytes of %s\n", ip, req.length, req.file);
-
-        /* read and send file */
-        char filebuf[req.length];
-        FILE *handle = fopen(req.file, "r");
-        size_t readBytes = fread(filebuf, 1, req.length, handle);
-        fclose(handle);
-        send(clientSocket, &filebuf, readBytes, 0);
-
-        close(clientSocket);
+        /* start new thread for client */
+        pthread_t thread;
+        pthread_create(&thread, NULL, handleClient, &clientSocket);
     }
     close(sock);
 
     return 0;
+}
+
+void* handleClient(void *client) {
+    int clientSocket = * (int *)client;
+    char buf[1024];
+
+    while (recv(clientSocket, &buf, sizeof(buf), 0) > 0) {
+        /* read request */
+        struct request req = { .length = 0, .file = NULL };
+        buftoreq(&buf, &req, sizeof(buf));
+
+        printf("Client requested %u bytes of %s\n", req.length, req.file);
+
+        /* read and send file or error message */
+        /* packets are all 1024 bytes for simplicity */
+        FILE *handle = fopen(req.file, "r");
+        if (handle) {
+            char filebuf[1024] = {0};
+            size_t readBytesTotal = 0;
+            size_t readBytes = 0;
+
+            /* send at least one package, so even if 0 bytes are requested, empty package is sent */
+            do {
+                /* read (another) 1024 bytes or less if requested length is reached */
+                int bytesToRead = req.length - readBytesTotal > 1024 ? 1024 : req.length;
+                readBytes = fread(filebuf, 1, bytesToRead, handle);
+                readBytesTotal += readBytes;
+
+                /* terminate string if EOF was reached */
+                if (readBytes < 1024)
+                    filebuf[readBytes] = '\0';
+
+                send(clientSocket, &filebuf, 1024, 0);
+            /* continue until either requested length was read or end of file was reached */
+            } while (readBytesTotal < req.length && readBytes == 1024);
+            fclose(handle);
+        } else {
+            /* error message must also be 1024 bytes */
+            char error[1024];
+            snprintf(error, 1024, "File %s not found.", req.file);
+            send(clientSocket, &error, sizeof(error), 0);
+        }
+
+        /* send empty packet to indicate end of current file */
+        char endSignal[1024] = {0};
+        send(clientSocket, &endSignal, 1024, 0);
+    }
+
+    close(clientSocket);
+    return NULL;
 }

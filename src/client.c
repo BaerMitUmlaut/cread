@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include "request.h"
 
-int clientMode(const char* ip, const char* size, char* file) {
+int clientMode(const char* ip, const char* size, const int fileNum, char** files) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1) return 1;
 
@@ -24,23 +24,28 @@ int clientMode(const char* ip, const char* size, char* file) {
         sleep(1);
     }
 
-    /* send request */
-    struct request req;
-    req.file = file;
-    req.length = atoi(size);
-    unsigned char reqbuf[strlen(file) + 5];
-    reqtobuf(&req, &reqbuf, sizeof(reqbuf));
-    send(sock, &reqbuf, sizeof(reqbuf), 0);
+    for (int i = 0; i < fileNum; i++) {
+        printf("Requesting %s:\n", files[i]);
 
-    /* receive data */
-    char filebuf[1024];
-    int received;
-    while ((received = recv(sock, &filebuf, sizeof(filebuf) - 1, 0)) > 0) {
-        filebuf[received] = '\0';
-        printf("%s", filebuf);
+        /* send request */
+        struct request req;
+        req.file = files[i];
+        req.length = atoi(size);
+        unsigned char reqbuf[strlen(files[i]) + 5];
+        reqtobuf(&req, &reqbuf, sizeof(reqbuf));
+        send(sock, &reqbuf, sizeof(reqbuf), 0);
+
+        /* receive data */
+        char filebuf[1025]; /* extra char for \0 */
+        int received;
+        while ((received = recv(sock, &filebuf, 1024, 0)) > 0) {
+            if (filebuf[0] == '\0') break;
+            filebuf[received] = '\0';
+            printf("%s", filebuf);
+        }
+        printf("\n");
     }
 
-    printf("\n");
     close(sock);
     return 0;
 }
